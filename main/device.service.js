@@ -58,11 +58,17 @@ export default class DeviceService {
   }
 
   async stopPolling() {
-    this.#pollingAllowed = false;
+    return new Promise(async (resolve) => {
+      this.#pollingAllowed = false;
 
-    while (this.#isPolling) {
-      await setTimeout(100);
-    }
+      while (true) {
+        if (!this.#isPolling) {
+          return resolve();
+        }
+
+        await setTimeout(100);
+      }
+    });
   }
 
   /**
@@ -96,36 +102,40 @@ export default class DeviceService {
    * @returns {Promise<Buffer>}
    */
   async write(buffer) {
-    try {
-      const device = await this.getDevice();
+    return new Promise(async (resolve, reject) => {
+      try {
+        const device = await this.getDevice();
 
-      const sendData = Array.prototype.slice.call(buffer, 0);
-      device.write(sendData);
-      // Allow to renderer process to draw the content
-      await setTimeout(1);
-      const receivedData = device.readTimeout(1000);
+        const sendData = Array.prototype.slice.call(buffer, 0);
+        device.write(sendData);
+        // Allow to renderer process to draw the content
+        await setTimeout(1);
+        const receivedData = device.readTimeout(1000);
 
-      if (receivedData[0] !== 0) {
-        throw new Error(
-          `Communications error with UHK. Response code: ${receivedData[0]}`,
-        );
+        if (receivedData[0] !== 0) {
+          return reject(
+            new Error(
+              `Communications error with UHK. Response code: ${receivedData[0]}`,
+            ),
+          );
+        }
+
+        return resolve(Buffer.from(receivedData));
+      } catch (error) {
+        if (this.#device) {
+          this.#device.close();
+          this.#device = null;
+        }
+        return reject(error);
       }
-
-      return Buffer.from(receivedData);
-    } catch (error) {
-      if (this.#device) {
-        this.#device.close();
-        this.#device = null;
-      }
-      throw error;
-    }
+    });
   }
 
   /**
    * @returns {Promise<void>}
    */
   async #poll() {
-    while (!this.#exiting) {
+    while (true) {
       if (this.#pollingAllowed) {
         this.#isPolling = true;
 
